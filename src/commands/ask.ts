@@ -10,8 +10,8 @@ const STREAM_CURSOR_ENABLED = true;
 
 const TOOL_LABELS: Record<string, (args: any) => string> = {
   resolve_ticker: (a) => `Resolving "${a.name}"...`,
-  get_financials: (a) => `Fetching financials for ${(a.tickers as string[]).join(', ')}...`,
-  get_news:       (a) => `Fetching news for ${(a.companies as string[]).join(', ')}...`,
+  get_financials: (a) => `Fetching financials for ${Array.isArray(a?.tickers) ? a.tickers.join(', ') : ''}...`,
+  get_news:       (a) => `Fetching news for ${Array.isArray(a?.companies) ? a.companies.join(', ') : ''}...`,
 };
 
 export async function run(query: string): Promise<void> {
