@@ -6,6 +6,7 @@ import legacyStore from '../config/store';
 type FinConfig = {
   apiKey?: string;
   llmModel?: string;
+  searxngUrl?: string;
 };
 
 const CONFIG_DIR = path.join(os.homedir(), '.fincli');
@@ -70,4 +71,25 @@ export function getStoredLlmModel(): string | undefined {
 export function setLlmModel(model: string): void {
   const cfg = safeReadConfig();
   safeWriteConfig({ ...cfg, llmModel: model });
+}
+
+// SearXNG instance URL — env > config > public fallback
+const PUBLIC_SEARXNG_INSTANCES = [
+  'https://priv.au',
+  'https://search.2b9t.xyz',
+  'https://searxng.world',
+];
+
+export function getSearxngUrl(): string {
+  if (process.env.SEARXNG_URL) return process.env.SEARXNG_URL.replace(/\/$/, '');
+  const cfg = safeReadConfig();
+  if (cfg.searxngUrl) return cfg.searxngUrl.replace(/\/$/, '');
+  // Round-robin across public instances using day-of-week to spread load
+  const idx = new Date().getDay() % PUBLIC_SEARXNG_INSTANCES.length;
+  return PUBLIC_SEARXNG_INSTANCES[idx];
+}
+
+export function setSearxngUrl(url: string): void {
+  const cfg = safeReadConfig();
+  safeWriteConfig({ ...cfg, searxngUrl: url });
 }

@@ -18,11 +18,14 @@ export type ParsedIntent = {
   include_news: boolean;
 };
 
+export type RequestType = 'analysis' | 'news';
+
 export type ParsedIntentV2 = {
   entities: Entity[];
   analysis_type: AnalysisType;
   include_news: boolean;
   off_topic: boolean;
+  request_type: RequestType;
 };
 
 function uniq(values: string[]): string[] {
@@ -78,11 +81,17 @@ export function normalizeIntentV2(input: any): ParsedIntentV2 {
 
   const includeNews = input?.include_news !== false; // default true
 
+  const allowedRequestTypes: RequestType[] = ['analysis', 'news'];
+  const requestType: RequestType = allowedRequestTypes.includes(input?.request_type)
+    ? input.request_type
+    : 'analysis';
+
   return {
     entities,
     analysis_type: analysisType,
     include_news: includeNews,
-    off_topic: Boolean(input?.off_topic)
+    off_topic: Boolean(input?.off_topic),
+    request_type: requestType
   };
 }
 

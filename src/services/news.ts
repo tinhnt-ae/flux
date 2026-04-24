@@ -1,6 +1,9 @@
 /**
  * News Service
- * Fetches news about companies using SearXNG or other sources
+ * Fetches financial news via RSS feeds:
+ *   - Yahoo Finance (per-ticker feed, most relevant for stocks)
+ *   - Google News (search-based, works with any company name)
+ * No API key required.
  */
 
 import axios from 'axios';
@@ -14,37 +17,110 @@ export type NewsArticle = {
   sentiment?: 'positive' | 'negative' | 'neutral';
 };
 
-/**
- * Fetch news articles for a company
- * Uses public search API or SearXNG instance
- * @param company Company name
- * @param limit Max articles to return (default 3)
- */
-export async function fetchNews(company: string, limit: number = 3): Promise<NewsArticle[]> {
-  if (!company || typeof company !== 'string') return [];
+// ── RSS helpers ────────────────────────────────────────────────────────────
 
+/** Extract text from a tag, handling both plain and CDATA variants */
+function extractTag(xml: string, tag: string): string {
+  const cdataRe = new RegExp(`<${tag}[^>]*><!\\[CDATA\\[([\\s\\S]*?)\\]\\]></${tag}>`, 'i');
+  const plainRe = new RegExp(`<${tag}[^>]*>([^<]*)</${tag}>`, 'i');
+  return (xml.match(cdataRe)?.[1] ?? xml.match(plainRe)?.[1] ?? '').trim();
+}
+
+/** Strip HTML tags and decode basic HTML entities */
+function stripHtml(html: string): string {
+  return html
+    .replace(/<[^>]+>/g, '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .trim();
+}
+
+/** Parse raw RSS XML into NewsArticle array */
+function parseRss(xml: string, defaultSource: string): NewsArticle[] {
+  const items = xml.match(/<item>([\s\S]*?)<\/item>/gi) ?? [];
+  return items.map((item) => {
+    const title = stripHtml(extractTag(item, 'title'));
+    const url = extractTag(item, 'link');
+    const snippet = stripHtml(extractTag(item, 'description')).slice(0, 200);
+    const date = extractTag(item, 'pubDate');
+    const source = extractTag(item, 'source') || defaultSource;
+    return {
+      title: title || 'Untitled',
+      url,
+      source,
+      snippet,
+      date: date || undefined,
+      sentiment: analyzeSentiment(snippet),
+    };
+  }).filter((a) => a.title !== 'Untitled' || a.snippet !== '');
+}
+
+// ── Fetchers ───────────────────────────────────────────────────────────────
+
+/** Looks like a stock ticker (1-5 uppercase letters, no spaces) */
+function looksLikeTicker(s: string): boolean {
+  return /^[A-Z]{1,5}$/.test(s.trim());
+}
+
+async function fetchYahooFinanceRss(ticker: string, limit: number): Promise<NewsArticle[]> {
+  const url = `https://finance.yahoo.com/rss/headline?s=${encodeURIComponent(ticker.toUpperCase())}`;
   try {
-    // Try using a public SearXNG instance or Bing Search API
-    // For MVP, we'll use a simple approach with Google search API
-    // In production, integrate with your preferred news API:
-    // - NewsAPI.org
-    // - Alpha Vantage News
-    // - Your own SearXNG instance
-
-    const query = `${company} stock news`;
-
-    // Placeholder: Return empty array for now
-    // In real implementation, call actual API:
-    // const res = await axios.get('https://your-searxng-instance/search', {
-    //   params: { q: query, format: 'json' }
-    // });
-
-    // Parse results into NewsArticle format
-    return [];
-  } catch (error: any) {
-    console.error(`Failed to fetch news for ${company}:`, error?.message);
+    const res = await axios.get<string>(url, {
+      timeout: 8000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; flux-cli/1.0)',
+        Accept: 'application/rss+xml, application/xml, text/xml',
+      },
+    });
+    return parseRss(res.data, 'Yahoo Finance').slice(0, limit);
+  } catch {
     return [];
   }
+}
+
+async function fetchGoogleNewsRss(query: string, limit: number): Promise<NewsArticle[]> {
+  const url = `https://news.google.com/rss/search?q=${encodeURIComponent(query + ' stock')}&hl=en-US&gl=US&ceid=US:en`;
+  try {
+    const res = await axios.get<string>(url, {
+      timeout: 8000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; flux-cli/1.0)',
+        Accept: 'application/rss+xml, application/xml, text/xml',
+      },
+    });
+    return parseRss(res.data, 'Google News').slice(0, limit);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Fetch news for a company name or ticker.
+ * Yahoo Finance (ticker) + Google News (name) are fetched in parallel and merged.
+ */
+export async function fetchNews(company: string, limit: number = 8): Promise<NewsArticle[]> {
+  if (!company || typeof company !== 'string') return [];
+
+  const isTicker = looksLikeTicker(company);
+
+  const [yahooArticles, googleArticles] = await Promise.all([
+    isTicker ? fetchYahooFinanceRss(company, limit) : Promise.resolve([]),
+    fetchGoogleNewsRss(company, limit),
+  ]);
+
+  const seen = new Set<string>();
+  const merged: NewsArticle[] = [];
+  for (const a of [...yahooArticles, ...googleArticles]) {
+    if (!seen.has(a.title)) {
+      seen.add(a.title);
+      merged.push(a);
+    }
+    if (merged.length >= limit) break;
+  }
+  return merged;
 }
 
 /**
@@ -60,18 +136,14 @@ export async function fetchNewsParallel(companies: string[]): Promise<Record<str
 }
 
 /**
- * Analyze sentiment of news snippets
- * Simple heuristic for MVP
+ * Analyze sentiment of news snippets — simple heuristic
  */
 export function analyzeSentiment(snippet: string): 'positive' | 'negative' | 'neutral' {
   if (!snippet || typeof snippet !== 'string') return 'neutral';
-
   const positive = /\b(surge|soar|jump|rally|beat|rise|growth|expand|record|improve|outperform)\b/i;
   const negative = /\b(plunge|fall|drop|decline|miss|slump|crash|down|shrink|contract|underperform)\b/i;
-
   const hasPositive = positive.test(snippet);
   const hasNegative = negative.test(snippet);
-
   if (hasPositive && !hasNegative) return 'positive';
   if (hasNegative && !hasPositive) return 'negative';
   return 'neutral';
@@ -82,7 +154,6 @@ export function analyzeSentiment(snippet: string): 'positive' | 'negative' | 'ne
  */
 export function formatNewsForCli(articles: NewsArticle[]): string {
   if (articles.length === 0) return 'No news found.';
-
   return articles
     .map(
       (article, idx) =>

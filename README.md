@@ -291,3 +291,9 @@ analyzeDataStream()     ← LLM streaming → StreamWriter typewriter output
 - **FluxLoader** `.animate()`: bouncing `[ Flux ]` animation for long-running analysis
 - **Inline palette**: `/` opens a non-clearing overlay with `↑↓` navigation, no full-screen takeover
 - **Word-wrap**: StreamWriter tracks column position and breaks at word boundaries using terminal width
+
+
+example run:
+
+1. Compare Tesla vs Nvidia, Apple, Microsoft
+2. Analyze Apple growth with latest news
