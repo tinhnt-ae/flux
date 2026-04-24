@@ -184,14 +184,16 @@ export async function run(query: string): Promise<void> {
   let lineBuffer = '';
 
   // ANSI color codes applied client-side (LLMs output text, not raw ESC bytes)
+  // Only emit escape sequences when stdout is a TTY; fall back to plain text otherwise.
+  const isTTY = process.stdout.isTTY === true;
   const ESC = '\x1b';
-  const BRAND = `${ESC}[38;5;48m`;   // green — section headers
-  const POS = `${ESC}[38;5;46m`;   // bright green — up / positive
-  const NEG = `${ESC}[38;5;196m`;  // red — down / negative
-  const CYAN = `${ESC}[38;5;51m`;   // cyan — bullets / neutral metrics
-  const MUTED = `${ESC}[38;5;240m`;  // dark gray — prev values / period label
-  const BOLD = `${ESC}[1m`;
-  const R = `${ESC}[0m`;          // reset
+  const BRAND = isTTY ? `${ESC}[38;5;48m`  : '';  // green — section headers
+  const POS   = isTTY ? `${ESC}[38;5;46m`  : '';  // bright green — up / positive
+  const NEG   = isTTY ? `${ESC}[38;5;196m` : '';  // red — down / negative
+  const CYAN  = isTTY ? `${ESC}[38;5;51m`  : '';  // cyan — bullets / neutral metrics
+  const MUTED = isTTY ? `${ESC}[38;5;240m` : '';  // dark gray — prev values / period label
+  const BOLD  = isTTY ? `${ESC}[1m`         : '';
+  const R     = isTTY ? `${ESC}[0m`         : '';  // reset
 
   const colorInline = (text: string): string =>
     text
