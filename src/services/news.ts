@@ -60,9 +60,9 @@ function parseRss(xml: string, defaultSource: string): NewsArticle[] {
 
 // ── Fetchers ───────────────────────────────────────────────────────────────
 
-/** Looks like a stock ticker (1-5 uppercase letters, no spaces) */
+/** Looks like a stock ticker (1-5 letters, no spaces; case-insensitive) */
 function looksLikeTicker(s: string): boolean {
-  return /^[A-Z]{1,5}$/.test(s.trim());
+  return /^[A-Z]{1,5}$/.test(s.trim().toUpperCase());
 }
 
 async function fetchYahooFinanceRss(ticker: string, limit: number): Promise<NewsArticle[]> {
