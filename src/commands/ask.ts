@@ -83,6 +83,7 @@ export async function run(query: string): Promise<void> {
   try {
     result = await runFluxAgent(query, writeChunk, onToolCall);
   } catch (e: any) {
+    await writer.abort();
     loader.fail('Request failed');
     if (e?.message) process.stdout.write(`  ${chalk.gray(e.message)}\n\n`);
     return;
