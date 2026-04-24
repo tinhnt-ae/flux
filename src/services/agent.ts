@@ -169,13 +169,23 @@ export async function runFluxAgent(
 
       // Execute each tool call and push results
       for (const tc of response.toolCalls) {
-        onToolCall?.(tc.function.name, JSON.parse(tc.function.arguments || '{}'));
-
         let result: any;
+        let args: any = {};
+
         try {
-          result = await executeTool(tc.function.name, JSON.parse(tc.function.arguments || '{}'));
+          args = JSON.parse(tc.function.arguments || '{}');
         } catch (err: any) {
-          result = { error: err?.message || 'Tool execution failed' };
+          result = { error: err?.message || 'Invalid tool arguments' };
+        }
+
+        if (!result) {
+          onToolCall?.(tc.function.name, args);
+
+          try {
+            result = await executeTool(tc.function.name, args);
+          } catch (err: any) {
+            result = { error: err?.message || 'Tool execution failed' };
+          }
         }
 
         // Accumulate side-effects for caller metadata
