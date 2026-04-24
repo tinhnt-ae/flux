@@ -186,17 +186,24 @@ export class StreamWriter {
       return ch;
     }
 
-    // Complete CSI sequence — emit atomically
+    // Complete supported SGR CSI sequence — emit atomically
     const match = this.buffer.match(/^\u001b\[[0-9;]*m/);
     if (match) {
       this.buffer = this.buffer.slice(match[0].length);
       return match[0];
     }
 
-    // ESC byte is present but sequence is incomplete (split across stream chunks).
-    // If the buffer could still become a valid CSI sequence, wait for more data.
-    if (this.buffer.length === 1 || this.buffer[1] === '[') {
+    // Wait only while the buffer is a prefix of a supported SGR sequence.
+    // This avoids stalling forever on unsupported or malformed CSI input.
+    if (this.buffer === '\u001b' || /^\u001b\[[0-9;]*$/.test(this.buffer)) {
       return ''; // signal: hold, don't emit yet
+    }
+
+    // Complete but unsupported CSI sequence — consume it so the buffer can progress.
+    const unsupportedCsi = this.buffer.match(/^\u001b\[[0-9:;<=>?]*[ -/]*[@-~]/);
+    if (unsupportedCsi) {
+      this.buffer = this.buffer.slice(unsupportedCsi[0].length);
+      return unsupportedCsi[0];
     }
 
     // Unrecognised escape — emit the lone ESC and move on
