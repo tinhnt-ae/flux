@@ -1,0 +1,11 @@
+# Protect license files from modification
+LICENSE merge=ours
+COPYRIGHT.md merge=ours
+AUTHORSHIP.md merge=ours
+
+# Ensure consistent line endings
+* text=auto
+*.js text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
