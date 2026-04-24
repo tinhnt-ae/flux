@@ -135,7 +135,17 @@ export class StreamWriter {
       return;
     }
     const unit = this.nextUnit();
-    if (!unit) { this.typingTimer = null; return; }
+    // Empty unit means either buffer is empty OR we're waiting for the rest
+    // of a split ANSI sequence — distinguish the two cases.
+    if (!unit) {
+      if (this.buffer.length > 0) {
+        // Incomplete ANSI sequence — poll again shortly
+        this.typingTimer = setTimeout(() => this.scheduleNext(), this.typingMs);
+      } else {
+        this.typingTimer = null;
+      }
+      return;
+    }
 
     let delay = this.typingMs;
     if (this.thinkingMode) {
@@ -176,15 +186,23 @@ export class StreamWriter {
       return ch;
     }
 
+    // Complete CSI sequence — emit atomically
     const match = this.buffer.match(/^\u001b\[[0-9;]*m/);
-    if (!match) {
-      const ch = this.buffer[0];
-      this.buffer = this.buffer.slice(1);
-      return ch;
+    if (match) {
+      this.buffer = this.buffer.slice(match[0].length);
+      return match[0];
     }
 
-    this.buffer = this.buffer.slice(match[0].length);
-    return match[0];
+    // ESC byte is present but sequence is incomplete (split across stream chunks).
+    // If the buffer could still become a valid CSI sequence, wait for more data.
+    if (this.buffer.length === 1 || this.buffer[1] === '[') {
+      return ''; // signal: hold, don't emit yet
+    }
+
+    // Unrecognised escape — emit the lone ESC and move on
+    const ch = this.buffer[0];
+    this.buffer = this.buffer.slice(1);
+    return ch;
   }
 
 }

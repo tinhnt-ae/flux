@@ -166,25 +166,57 @@ export async function parseIntent(query: string): Promise<ParsedIntent> {
   return normalizeIntent(parsed, query);
 }
 
-export async function analyzeData(query: string, data: object): Promise<string> {
-  const systemPrompt = [
-    'You are a financial analysis assistant for a CLI.',
-    'Use ONLY the provided dataset.',
-    'Do NOT use external knowledge.',
-    'If data is missing, explicitly say data is unavailable.',
-    'Write concise, terminal-friendly analysis with two short sections:',
-    '1) Analysis',
-    '2) Conclusion'
-  ].join('\n');
+const ANALYSIS_SYSTEM_PROMPT = [
+  'You are FLUX, a Financial Intelligence CLI assistant.',
+  'Use ONLY the provided financial data (source: FactStream). Do NOT use external knowledge.',
+  'Output PLAIN TEXT only — no escape codes, no markdown, no backticks.',
+  '',
+  '━━━━━━━━━━━━━━━━━━ OUTPUT FORMAT ━━━━━━━━━━━━━━━━━━━━━━',
+  'Four sections in this order, each with an ALL-CAPS header:',
+  '',
+  'QUARTERLY PERFORMANCE',
+  '<period label, e.g. Q1 2026 vs Q4 2025>',
+  'Revenue          $143.8B  ↑ +40.3%  (Q4: $102.5B)  ▁▃▅█',
+  'Net Income       $42.1B   ↑ +53.3%  (Q4: $27.5B)   ▁▂▅█',
+  'Free Cash Flow   $51.6B   ↑ +206%   (Q4: -$48.4B)  ▁▁▁█',
+  '',
+  'PROFITABILITY',
+  'Gross Margin     48.2%  ━━━━━━━━━░  Excellent',
+  'Operating Margin 35.4%  ━━━━━━░░░░  Strong',
+  'Net Margin       29.3%  ━━━━━░░░░░  Healthy',
+  'Diluted EPS      $2.84  ↑ +54.3%',
+  '',
+  'BALANCE SHEET',
+  'Total Assets   $379.3B  ↑ +5.6%',
+  'Cash & Equiv.  $45.3B   ↑ +26.1%',
+  'Total Debt     $88.5B   ↓ -2.1%',
+  '',
+  'KEY TAKEAWAYS',
+  '• <point 1>',
+  '• <point 2>',
+  '• <point 3>',
+  '',
+  '━━━━━━━━━━━━━━━━━━ RULES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+  '- Labels padded to 16 chars',
+  '- ↑ for positive, ↓ for negative, → for flat',
+  '- Progress bars: ━ filled + ░ empty, exactly 10 chars',
+  '- Sparklines: ▁▂▃▅▆▇█, 4 chars per row',
+  '- Blank line between every section',
+  '- If a metric is missing: write "Data not available"',
+  '- If news context provided: add NEWS CONTEXT section after KEY TAKEAWAYS (bullets only, no numbers)',
+  '- Output ONLY the analysis — no preamble, no explanations',
+].join('\n');
 
+export async function analyzeData(query: string, data: object): Promise<string> {
   const userPrompt = [
     `User query: ${query}`,
-    'Dataset (JSON):',
-    JSON.stringify(data)
-  ].join('\n\n');
+    '',
+    'FINANCIAL DATA (source: FactStream):',
+    JSON.stringify(data, null, 2)
+  ].join('\n');
 
   return runChatCompletion([
-    { role: 'system', content: systemPrompt },
+    { role: 'system', content: ANALYSIS_SYSTEM_PROMPT },
     { role: 'user', content: userPrompt }
   ]);
 }
@@ -227,44 +259,18 @@ export async function analyzeDataWithNews(
   financialData: object,
   newsData: object
 ): Promise<string> {
-  const systemPrompt = [
-    'You are a financial analysis assistant for a CLI.',
-    'You have access to:',
-    '1. Financial data (source of truth)',
-    '2. News data (context only)',
-    'Rules:',
-    '- Base analysis on financial data only.',
-    '- Use news for context and explanation.',
-    '- DO NOT extract numbers from news.',
-    '- If news is irrelevant, ignore it.',
-    '- Be concise and professional.',
-    'Format output as:',
-    '=== SUMMARY ===',
-    '[1-2 sentences on financial health]',
-    '',
-    '=== ANALYSIS ===',
-    '[2-3 paragraphs of analysis]',
-    '',
-    '=== NEWS IMPACT ===',
-    '- [key point 1]',
-    '- [key point 2]',
-    '- [key point 3]',
-    '',
-    '=== CONCLUSION ==='
-  ].join('\n');
-
   const userPrompt = [
     `User query: ${query}`,
     '',
-    'FINANCIAL DATA:',
-    JSON.stringify(financialData),
+    'FINANCIAL DATA (source: FactStream):',
+    JSON.stringify(financialData, null, 2),
     '',
-    'NEWS DATA:',
-    JSON.stringify(newsData)
+    'NEWS CONTEXT (use for context only, do not extract numbers):',
+    JSON.stringify(newsData, null, 2)
   ].join('\n');
 
   return runChatCompletion([
-    { role: 'system', content: systemPrompt },
+    { role: 'system', content: ANALYSIS_SYSTEM_PROMPT },
     { role: 'user', content: userPrompt }
   ]);
 }
@@ -274,21 +280,16 @@ export async function analyzeDataStream(
   data: object,
   onChunk: (chunk: string) => void
 ): Promise<string> {
-  const systemPrompt = [
-    'You are a financial analysis assistant for a CLI.',
-    'Use ONLY the provided dataset.',
-    'Do NOT use external knowledge.',
-    'If data is missing, explicitly say data is unavailable.',
-    'Write concise, terminal-friendly analysis with two short sections:',
-    '1) Analysis',
-    '2) Conclusion'
+  const userPrompt = [
+    `User query: ${query}`,
+    '',
+    'FINANCIAL DATA (source: FactStream):',
+    JSON.stringify(data, null, 2)
   ].join('\n');
-
-  const userPrompt = [`User query: ${query}`, 'Dataset (JSON):', JSON.stringify(data)].join('\n\n');
 
   return runChatCompletionStream(
     [
-      { role: 'system', content: systemPrompt },
+      { role: 'system', content: ANALYSIS_SYSTEM_PROMPT },
       { role: 'user', content: userPrompt }
     ],
     onChunk
@@ -301,45 +302,19 @@ export async function analyzeDataWithNewsStream(
   newsData: object,
   onChunk: (chunk: string) => void
 ): Promise<string> {
-  const systemPrompt = [
-    'You are a financial analysis assistant for a CLI.',
-    'You have access to:',
-    '1. Financial data (source of truth)',
-    '2. News data (context only)',
-    'Rules:',
-    '- Base analysis on financial data only.',
-    '- Use news for context and explanation.',
-    '- DO NOT extract numbers from news.',
-    '- If news is irrelevant, ignore it.',
-    '- Be concise and professional.',
-    'Format output as:',
-    '=== SUMMARY ===',
-    '[1-2 sentences on financial health]',
-    '',
-    '=== ANALYSIS ===',
-    '[2-3 paragraphs of analysis]',
-    '',
-    '=== NEWS IMPACT ===',
-    '- [key point 1]',
-    '- [key point 2]',
-    '- [key point 3]',
-    '',
-    '=== CONCLUSION ==='
-  ].join('\n');
-
   const userPrompt = [
     `User query: ${query}`,
     '',
-    'FINANCIAL DATA:',
-    JSON.stringify(financialData),
+    'FINANCIAL DATA (source: FactStream):',
+    JSON.stringify(financialData, null, 2),
     '',
-    'NEWS DATA:',
-    JSON.stringify(newsData)
+    'NEWS CONTEXT (use for context only, do not extract numbers):',
+    JSON.stringify(newsData, null, 2)
   ].join('\n');
 
   return runChatCompletionStream(
     [
-      { role: 'system', content: systemPrompt },
+      { role: 'system', content: ANALYSIS_SYSTEM_PROMPT },
       { role: 'user', content: userPrompt }
     ],
     onChunk
