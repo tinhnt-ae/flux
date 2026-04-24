@@ -135,7 +135,17 @@ export class StreamWriter {
       return;
     }
     const unit = this.nextUnit();
-    if (!unit) { this.typingTimer = null; return; }
+    // Empty unit means either buffer is empty OR we're waiting for the rest
+    // of a split ANSI sequence — distinguish the two cases.
+    if (!unit) {
+      if (this.buffer.length > 0) {
+        // Incomplete ANSI sequence — poll again shortly
+        this.typingTimer = setTimeout(() => this.scheduleNext(), this.typingMs);
+      } else {
+        this.typingTimer = null;
+      }
+      return;
+    }
 
     let delay = this.typingMs;
     if (this.thinkingMode) {
@@ -176,15 +186,30 @@ export class StreamWriter {
       return ch;
     }
 
+    // Complete supported SGR CSI sequence — emit atomically
     const match = this.buffer.match(/^\u001b\[[0-9;]*m/);
-    if (!match) {
-      const ch = this.buffer[0];
-      this.buffer = this.buffer.slice(1);
-      return ch;
+    if (match) {
+      this.buffer = this.buffer.slice(match[0].length);
+      return match[0];
     }
 
-    this.buffer = this.buffer.slice(match[0].length);
-    return match[0];
+    // Wait only while the buffer is a prefix of a supported SGR sequence.
+    // This avoids stalling forever on unsupported or malformed CSI input.
+    if (this.buffer === '\u001b' || /^\u001b\[[0-9;]*$/.test(this.buffer)) {
+      return ''; // signal: hold, don't emit yet
+    }
+
+    // Complete but unsupported CSI sequence — consume it so the buffer can progress.
+    const unsupportedCsi = this.buffer.match(/^\u001b\[[0-9:;<=>?]*[ -/]*[@-~]/);
+    if (unsupportedCsi) {
+      this.buffer = this.buffer.slice(unsupportedCsi[0].length);
+      return unsupportedCsi[0];
+    }
+
+    // Unrecognised escape — emit the lone ESC and move on
+    const ch = this.buffer[0];
+    this.buffer = this.buffer.slice(1);
+    return ch;
   }
 
 }

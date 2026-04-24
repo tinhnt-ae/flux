@@ -183,14 +183,49 @@ export async function run(query: string): Promise<void> {
   let startedStreaming = false;
   let lineBuffer = '';
 
+  // ANSI color codes applied client-side (LLMs output text, not raw ESC bytes)
+  // Only emit escape sequences when stdout is a TTY; fall back to plain text otherwise.
+  const isTTY = process.stdout.isTTY === true;
+  const ESC = '\x1b';
+  const BRAND = isTTY ? `${ESC}[38;5;48m`  : '';  // green — section headers
+  const POS   = isTTY ? `${ESC}[38;5;46m`  : '';  // bright green — up / positive
+  const NEG   = isTTY ? `${ESC}[38;5;196m` : '';  // red — down / negative
+  const CYAN  = isTTY ? `${ESC}[38;5;51m`  : '';  // cyan — bullets / neutral metrics
+  const MUTED = isTTY ? `${ESC}[38;5;240m` : '';  // dark gray — prev values / period label
+  const BOLD  = isTTY ? `${ESC}[1m`         : '';
+  const R     = isTTY ? `${ESC}[0m`         : '';  // reset
+
+  const colorInline = (text: string): string =>
+    text
+      .replace(/(\$[\d,.]+[BMKbmk]?)/g, `${BOLD}$1${R}`)   // bold dollar amounts
+      .replace(/(\([^)]+\))/g, `${MUTED}$1${R}`)  // muted prev values
+      .replace(/(\+[\d.]+%)/g, `${POS}$1${R}`)    // positive %
+      .replace(/(?<!\+)(-[\d.]+%)/g, `${NEG}$1${R}`)    // negative % (not part of $-48.4B)
+      .replace(/↑/g, `${POS}↑${R}`)                         // up arrow
+      .replace(/↓/g, `${NEG}↓${R}`);                        // down arrow
+
   const styleArticleLine = (line: string): string => {
     const trimmed = line.trim();
-    if (/^===\s*.+\s*===$/.test(trimmed)) return `${chalk.bold.hex('#7ad3ff')(trimmed)}\n`;
-    if (/^(summary|financial analysis|news impact|combined insight|conclusion)\s*:/i.test(trimmed)) {
-      return `${chalk.bold.white(trimmed)}\n`;
+    if (trimmed === '') return '\n';
+
+    // ALL-CAPS section header (e.g. QUARTERLY PERFORMANCE, KEY TAKEAWAYS)
+    if (/^[A-Z][A-Z\s&]+$/.test(trimmed)) {
+      return `\n${BRAND}${BOLD}${trimmed}${R}\n`;
     }
-    if (/^[-*]\s+/.test(trimmed)) return `${chalk.gray(line)}\n`;
-    return `${chalk.white(line)}\n`;
+
+    // Period / subheader line (e.g. "Q1 2026 vs Q4 2025", "FY2025")
+    if (/^(Q[1-4]\s+\d{4}|FY\s*\d{4}|H[12]\s+\d{4})/i.test(trimmed)) {
+      return `${MUTED}${trimmed}${R}\n`;
+    }
+
+    // Bullet point (KEY TAKEAWAYS)
+    if (/^[•\-*]\s+/.test(trimmed)) {
+      const text = trimmed.replace(/^[•\-*]\s+/, '');
+      return `${CYAN}•${R} ${colorInline(text)}\n`;
+    }
+
+    // All other lines (metric rows, progress bar rows)
+    return `${colorInline(trimmed)}\n`;
   };
 
   const writeArticleChunk = (chunk: string) => {
@@ -199,11 +234,6 @@ export async function run(query: string): Promise<void> {
     lineBuffer = parts.pop() ?? '';
     for (const line of parts) {
       writer.write(styleArticleLine(line));
-    }
-    // Do not wait for full paragraphs; start showing text progressively.
-    if (lineBuffer.length >= 20) {
-      writer.write(chalk.white(lineBuffer));
-      lineBuffer = '';
     }
   };
 
@@ -231,11 +261,15 @@ export async function run(query: string): Promise<void> {
       const fallbackText = entityIntent.include_news && Object.keys(newsData).length > 0
         ? await analyzeDataWithNews(query, { tickers, dataset }, newsData)
         : await analyzeData(query, { tickers, dataset });
-      writer.write(chalk.white(fallbackText));
+      for (const line of fallbackText.split('\n')) {
+        writer.write(styleArticleLine(line));
+      }
       await writer.end();
     } else {
+      // Flush any partial line remaining in the buffer
       if (lineBuffer.length > 0) {
-        writer.write(chalk.white(lineBuffer));
+        writer.write(styleArticleLine(lineBuffer));
+        lineBuffer = '';
       }
       await writer.end();
     }
