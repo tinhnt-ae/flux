@@ -1,45 +1,20 @@
-Copyright (c) 2026-2026 Nguyen Trung Tinh. All rights reserved.
+MIT License
 
-PROPRIETARY AND CONFIDENTIAL
+Copyright (c) 2026 Nguyen Trung Tinh
 
-This software and associated documentation files (the "Software") are the 
-exclusive property of Nguyen Trung Tinh ("Owner").
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, subject to the following conditions:
 
-All rights, title, and interest in and to the Software, including all 
-intellectual property rights, are and shall remain the exclusive property 
-of the Owner.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-RESTRICTIONS:
-
-1. No person or entity may use, copy, modify, merge, publish, distribute, 
-   sublicense, or sell copies of the Software without prior written 
-   permission from the Owner.
-
-2. Unauthorized copying, modification, distribution, or use of this Software, 
-   via any medium, is strictly prohibited and constitutes a violation of 
-   copyright law.
-
-3. This Software is provided for the Owner's exclusive use and development. 
-   Any use by third parties requires explicit written authorization.
-
-4. Reverse engineering, decompilation, or disassembly of this Software is 
-   strictly prohibited.
-
-OWNERSHIP:
-
-This Software was authored entirely by Nguyen Trung Tinh. All source code, 
-documentation, design, architecture, and related materials are original works 
-created by the Owner.
-
-Git commit history and repository records serve as evidence of authorship and 
-creation dates.
-
-NO WARRANTY:
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
-IMPLIED. IN NO EVENT SHALL THE OWNER BE LIABLE FOR ANY CLAIM, DAMAGES, OR 
-OTHER LIABILITY ARISING FROM THE USE OF THIS SOFTWARE.
-
-For licensing inquiries: dev.tinhnt@gmail.com
-
-Last updated: April 24, 2026
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
