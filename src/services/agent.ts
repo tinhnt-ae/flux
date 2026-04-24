@@ -215,7 +215,9 @@ export async function runFluxAgent(
     break;
   }
 
-  return { resolvedTickers, dataset, newsData, text: '' };
+  throw new Error(
+    'FLUX agent terminated without producing a final response within the maximum number of turns.'
+  );
 }
 
 // ── Agent system prompt ───────────────────────────────────────────────────────
