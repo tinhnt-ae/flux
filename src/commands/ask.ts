@@ -3,15 +3,19 @@ import { runFluxAgent } from '../services/agent';
 import { FluxLoader } from '../ui/fluxLoader';
 import { renderAnalysisHeader, renderDivider } from '../ui/layout';
 import { StreamWriter } from '../ui/stream';
+import { getErrorMessage } from '../utils/errors';
+import type { ToolArgsByName, ToolName } from '../types/domain';
 
 const STREAM_CURSOR_ENABLED = true;
 
 // ── Tool call label map ────────────────────────────────────────────────────
 
-const TOOL_LABELS: Record<string, (args: any) => string> = {
+const TOOL_LABELS: {
+  [Name in ToolName]: (args: ToolArgsByName[Name]) => string;
+} = {
   resolve_ticker: (a) => `Resolving "${a.name}"...`,
-  get_financials: (a) => `Fetching financials for ${Array.isArray(a?.tickers) ? a.tickers.join(', ') : ''}...`,
-  get_news:       (a) => `Fetching news for ${Array.isArray(a?.companies) ? a.companies.join(', ') : ''}...`,
+  get_financials: (a) => `Fetching financials for ${a.tickers.join(', ')}...`,
+  get_news:       (a) => `Fetching news for ${a.companies.join(', ')}...`,
 };
 
 export async function run(query: string): Promise<void> {
@@ -74,18 +78,19 @@ export async function run(query: string): Promise<void> {
     }
   };
 
-  const onToolCall = (name: string, args: any) => {
-    const label = TOOL_LABELS[name]?.(args) ?? `Calling ${name}...`;
+  const onToolCall = <Name extends ToolName>(name: Name, args: ToolArgsByName[Name]) => {
+    const label = TOOL_LABELS[name](args);
     loader.animate(label);
   };
 
   let result: Awaited<ReturnType<typeof runFluxAgent>>;
   try {
     result = await runFluxAgent(query, writeChunk, onToolCall);
-  } catch (e: any) {
+  } catch (error: unknown) {
     await writer.abort();
     loader.fail('Request failed');
-    if (e?.message) process.stdout.write(`  ${chalk.gray(e.message)}\n\n`);
+    const message = getErrorMessage(error, '');
+    if (message) process.stdout.write(`  ${chalk.gray(message)}\n\n`);
     return;
   }
 

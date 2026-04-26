@@ -32,32 +32,42 @@ function uniq(values: string[]): string[] {
   return [...new Set(values)];
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
 export function extractTickersFromQuery(query: string): string[] {
   const matches = (query || '').toUpperCase().match(/\b[A-Z]{1,5}\b/g) || [];
   const commonWords = ['AND', 'THE', 'WITH', 'OR', 'VS', 'BY', 'FOR', 'IN', 'ON', 'AT', 'TO', 'FROM', 'IS', 'A', 'AN'];
   return uniq(matches).filter(t => !commonWords.includes(t) && t.length >= 1);
 }
 
-export function normalizeIntent(input: any, query: string): ParsedIntent {
+export function normalizeIntent(input: unknown, query: string): ParsedIntent {
+  const record = isRecord(input) ? input : {};
   const allowed: AnalysisType[] = ['growth', 'profitability', 'cashflow', 'general'];
-  const analysisType = allowed.includes(input?.analysis_type) ? input.analysis_type : 'general';
-  const metrics = Array.isArray(input?.metrics) ? input.metrics.filter((m: unknown) => typeof m === 'string') : [];
-  const periodsRaw = Number(input?.periods);
+  const rawAnalysisType = readString(record.analysis_type);
+  const analysisType = rawAnalysisType && allowed.includes(rawAnalysisType as AnalysisType) ? rawAnalysisType as AnalysisType : 'general';
+  const metrics = Array.isArray(record.metrics) ? record.metrics.filter((m: unknown): m is string => typeof m === 'string') : [];
+  const periodsRaw = Number(record.periods);
   const periods = Number.isFinite(periodsRaw) && periodsRaw > 0 ? Math.min(Math.floor(periodsRaw), 8) : 2;
 
-  const fromModel = Array.isArray(input?.tickers)
-    ? input.tickers.filter((t: unknown) => typeof t === 'string').map((t: string) => t.toUpperCase())
+  const fromModel = Array.isArray(record.tickers)
+    ? record.tickers.filter((t: unknown): t is string => typeof t === 'string').map((t) => t.toUpperCase())
     : [];
   const tickers = uniq(fromModel.length > 0 ? fromModel : extractTickersFromQuery(query));
 
   // Extract entities (for backward compatibility, keep tickers separate)
-  const entities: Entity[] = Array.isArray(input?.entities)
-    ? input.entities
-      .filter((e: any) => typeof e?.name === 'string' && (e?.type === 'company' || e?.type === 'ticker'))
-      .map((e: any) => ({ name: e.name.toUpperCase(), type: e.type as EntityType }))
+  const entities: Entity[] = Array.isArray(record.entities)
+    ? record.entities
+      .filter((e: unknown): e is Entity => isRecord(e) && typeof e.name === 'string' && (e.type === 'company' || e.type === 'ticker'))
+      .map((e) => ({ name: e.name.toUpperCase(), type: e.type }))
     : tickers.map((t) => ({ name: t, type: 'ticker' as EntityType }));
 
-  const includeNews = input?.include_news === true;
+  const includeNews = record.include_news === true;
 
   return {
     entities,
@@ -69,42 +79,45 @@ export function normalizeIntent(input: any, query: string): ParsedIntent {
   };
 }
 
-export function normalizeIntentV2(input: any): ParsedIntentV2 {
+export function normalizeIntentV2(input: unknown): ParsedIntentV2 {
+  const record = isRecord(input) ? input : {};
   const allowed: AnalysisType[] = ['growth', 'profitability', 'cashflow', 'general'];
-  const analysisType = allowed.includes(input?.analysis_type) ? input.analysis_type : 'general';
+  const rawAnalysisType = readString(record.analysis_type);
+  const analysisType = rawAnalysisType && allowed.includes(rawAnalysisType as AnalysisType) ? rawAnalysisType as AnalysisType : 'general';
 
-  const entities: Entity[] = Array.isArray(input?.entities)
-    ? input.entities
-      .filter((e: any) => typeof e?.name === 'string' && (e?.type === 'company' || e?.type === 'ticker'))
-      .map((e: any) => ({ name: e.name, type: e.type as EntityType }))
+  const entities: Entity[] = Array.isArray(record.entities)
+    ? record.entities
+      .filter((e: unknown): e is Entity => isRecord(e) && typeof e.name === 'string' && (e.type === 'company' || e.type === 'ticker'))
+      .map((e) => ({ name: e.name, type: e.type }))
     : [];
 
-  const includeNews = input?.include_news !== false; // default true
+  const includeNews = record.include_news !== false; // default true
 
   const allowedRequestTypes: RequestType[] = ['analysis', 'news'];
-  const requestType: RequestType = allowedRequestTypes.includes(input?.request_type)
-    ? input.request_type
+  const rawRequestType = readString(record.request_type);
+  const requestType: RequestType = rawRequestType && allowedRequestTypes.includes(rawRequestType as RequestType)
+    ? rawRequestType as RequestType
     : 'analysis';
 
   return {
     entities,
     analysis_type: analysisType,
     include_news: includeNews,
-    off_topic: Boolean(input?.off_topic),
+    off_topic: Boolean(record.off_topic),
     request_type: requestType
   };
 }
 
-function getPath(obj: any, path: string[]): any {
+function getPath(obj: unknown, path: string[]): unknown {
   let cur = obj;
   for (const segment of path) {
-    if (!cur || typeof cur !== 'object') return undefined;
+    if (!isRecord(cur)) return undefined;
     cur = cur[segment];
   }
   return cur;
 }
 
-function parseMetric(obj: any, preferredPaths: string[][], fallbackKeys: string[]): number | null {
+function parseMetric(obj: unknown, preferredPaths: string[][], fallbackKeys: string[]): number | null {
   for (const p of preferredPaths) {
     const v = getPath(obj, p);
     const parsed = parseNumberLike(v);
@@ -114,7 +127,7 @@ function parseMetric(obj: any, preferredPaths: string[][], fallbackKeys: string[
   return fallback;
 }
 
-export function extractCoreMetrics(statement: any): { revenue: number | null; netIncome: number | null; freeCashFlow: number | null } {
+export function extractCoreMetrics(statement: unknown): { revenue: number | null; netIncome: number | null; freeCashFlow: number | null } {
   const revenue = parseMetric(
     statement,
     [

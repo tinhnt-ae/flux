@@ -10,6 +10,20 @@ import { resolveTicker } from './resolver';
 import { buildMinimalDataset } from './factstream';
 import { fetchNewsParallel } from './news';
 import { runAgentLoop, runAgentLoopStream, AgentMessage } from './llm';
+import { getErrorMessage } from '../utils/errors';
+import type {
+  ChatToolDefinition,
+  GetFinancialsArgs,
+  GetFinancialsResult,
+  GetNewsArgs,
+  GetNewsResult,
+  NewsDataset,
+  ResolveTickerArgs,
+  TickerDatasetMap,
+  ToolArgsByName,
+  ToolName,
+  ToolResult
+} from '../types/domain';
 
 // ── Tool definitions sent to the LLM ─────────────────────────────────────────
 
@@ -70,42 +84,83 @@ export const FLUX_TOOLS = [
       },
     },
   },
-] as const;
+] as const satisfies readonly ChatToolDefinition[];
 
 // ── Tool executor ─────────────────────────────────────────────────────────────
 
 export type ToolCallResult = {
-  tool: string;
-  result: any;
+  tool: ToolName;
+  result: ToolResult;
 };
 
-export async function executeTool(name: string, args: any): Promise<any> {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeStringList(value: unknown, transform: (value: string) => string = String): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string').map(transform).filter(Boolean)
+    : [];
+}
+
+export function parseToolArgs<Name extends ToolName>(name: Name, rawArgs: unknown): ToolArgsByName[Name] | null {
+  if (!isRecord(rawArgs)) return null;
+
   switch (name) {
     case 'resolve_ticker': {
-      const ticker = await resolveTicker(String(args.name || ''));
+      const nameArg = rawArgs.name;
+      return (typeof nameArg === 'string' && nameArg.trim())
+        ? { name: nameArg.trim() } as ToolArgsByName[Name]
+        : null;
+    }
+    case 'get_financials': {
+      const tickers = normalizeStringList(rawArgs.tickers, (ticker) => ticker.toUpperCase());
+      return tickers.length > 0 ? { tickers } as ToolArgsByName[Name] : null;
+    }
+    case 'get_news': {
+      const companies = normalizeStringList(rawArgs.companies);
+      return companies.length > 0 ? { companies } as ToolArgsByName[Name] : null;
+    }
+  }
+}
+
+function isToolName(name: string): name is ToolName {
+  return name === 'resolve_ticker' || name === 'get_financials' || name === 'get_news';
+}
+
+function parseToolCallJson(text: string): unknown {
+  try {
+    return JSON.parse(text || '{}');
+  } catch (error: unknown) {
+    return { error: getErrorMessage(error, 'Invalid tool arguments') };
+  }
+}
+
+function hasToolError(result: ToolResult): result is { error: string } {
+  return 'error' in result;
+}
+
+export async function executeTool(name: ToolName, args: ToolArgsByName[ToolName]): Promise<ToolResult> {
+  switch (name) {
+    case 'resolve_ticker': {
+      const { name: companyName } = args as ResolveTickerArgs;
+      const ticker = await resolveTicker(companyName);
       return { ticker: ticker || null, resolved: !!ticker };
     }
 
     case 'get_financials': {
-      const tickers: string[] = Array.isArray(args.tickers)
-        ? args.tickers.map((t: any) => String(t).toUpperCase())
-        : [];
+      const { tickers } = args as GetFinancialsArgs;
       if (tickers.length === 0) return { error: 'No tickers provided' };
       const dataset = await buildMinimalDataset(tickers);
-      return { dataset };
+      return { dataset } satisfies GetFinancialsResult;
     }
 
     case 'get_news': {
-      const companies: string[] = Array.isArray(args.companies)
-        ? args.companies.map((c: any) => String(c))
-        : [];
+      const { companies } = args as GetNewsArgs;
       if (companies.length === 0) return { error: 'No companies provided' };
       const news = await fetchNewsParallel(companies);
-      return { news };
+      return { news: news as NewsDataset } satisfies GetNewsResult;
     }
-
-    default:
-      return { error: `Unknown tool: ${name}` };
   }
 }
 
@@ -115,9 +170,9 @@ export type AgentResult = {
   /** Tickers that were ultimately fetched (for the header display) */
   resolvedTickers: string[];
   /** Collected financial dataset (may be empty for news-only queries) */
-  dataset: Record<string, { latest: any; previous: any }>;
+  dataset: TickerDatasetMap;
   /** Collected news data (may be empty for financials-only queries) */
-  newsData: Record<string, any>;
+  newsData: NewsDataset;
   /** Final text output from the LLM */
   text: string;
 };
@@ -133,11 +188,11 @@ export type AgentResult = {
 export async function runFluxAgent(
   query: string,
   onChunk?: (chunk: string) => void,
-  onToolCall?: (name: string, args: any) => void
+  onToolCall?: (name: ToolName, args: ToolArgsByName[ToolName]) => void
 ): Promise<AgentResult> {
   const resolvedTickers: string[] = [];
-  const dataset: Record<string, { latest: any; previous: any }> = {};
-  const newsData: Record<string, any> = {};
+  const dataset: TickerDatasetMap = {};
+  const newsData: NewsDataset = {};
 
   const messages: AgentMessage[] = [
     {
@@ -169,34 +224,40 @@ export async function runFluxAgent(
 
       // Execute each tool call and push results
       for (const tc of response.toolCalls) {
-        let result: any;
-        let args: any = {};
+        let result: ToolResult;
+        let args: ToolArgsByName[ToolName] | null = null;
 
-        try {
-          args = JSON.parse(tc.function.arguments || '{}');
-        } catch (err: any) {
-          result = { error: err?.message || 'Invalid tool arguments' };
-        }
+        if (!isToolName(tc.function.name)) {
+          result = { error: `Unknown tool: ${tc.function.name}` };
+        } else {
+          const parsed = parseToolCallJson(tc.function.arguments);
+          if (isRecord(parsed) && typeof parsed.error === 'string') {
+            result = { error: parsed.error };
+          } else {
+            args = parseToolArgs(tc.function.name, parsed);
+            if (!args) {
+              result = { error: 'Invalid tool arguments' };
+            } else {
+              onToolCall?.(tc.function.name, args);
 
-        if (!result) {
-          onToolCall?.(tc.function.name, args);
-
-          try {
-            result = await executeTool(tc.function.name, args);
-          } catch (err: any) {
-            result = { error: err?.message || 'Tool execution failed' };
+              try {
+                result = await executeTool(tc.function.name, args);
+              } catch (err: unknown) {
+                result = { error: getErrorMessage(err, 'Tool execution failed') };
+              }
+            }
           }
         }
 
         // Accumulate side-effects for caller metadata
-        if (tc.function.name === 'get_financials' && result.dataset) {
+        if (tc.function.name === 'get_financials' && !hasToolError(result) && 'dataset' in result) {
           Object.assign(dataset, result.dataset);
           resolvedTickers.push(...Object.keys(result.dataset).filter(k => !resolvedTickers.includes(k)));
         }
-        if (tc.function.name === 'get_news' && result.news) {
+        if (tc.function.name === 'get_news' && !hasToolError(result) && 'news' in result) {
           Object.assign(newsData, result.news);
         }
-        if (tc.function.name === 'resolve_ticker' && result.ticker) {
+        if (tc.function.name === 'resolve_ticker' && !hasToolError(result) && 'ticker' in result && result.ticker) {
           if (!resolvedTickers.includes(result.ticker)) resolvedTickers.push(result.ticker);
         }
 

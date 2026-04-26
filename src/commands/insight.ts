@@ -2,14 +2,14 @@ import { getFinancials } from '../services/apiClient';
 import { pctChange } from '../utils/growth';
 import { growthLabel, fcStatus } from '../utils/scorer';
 import { prettyCurrency, pct } from '../utils/formatter';
-import { getLatestPrev, parseNumberLike, getField, extractQuarterLabel } from '../utils/data';
+import { getCompanyName, getLatestPrev, parseNumberLike, getField, extractQuarterLabel } from '../utils/data';
 import chalk from 'chalk';
 import Table from 'cli-table3';
 import boxen from 'boxen';
 
 export async function run(ticker: string) {
   const data = await getFinancials(ticker);
-  const company = data.company_name || data.name || ticker.toUpperCase();
+  const company = getCompanyName(data, ticker);
   const { quarters, latest, prev } = getLatestPrev(data);
   if (!quarters || quarters.length < 1 || !latest) {
     console.log('Ticker not found or no quarter data');
