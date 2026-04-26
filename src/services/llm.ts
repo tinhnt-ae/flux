@@ -2,6 +2,7 @@ import axios from 'axios';
 import { Readable } from 'stream';
 import { normalizeIntent, ParsedIntent, normalizeIntentV2, ParsedIntentV2 } from '../utils/parser';
 import { getStoredLlmModel } from '../utils/config';
+import type { ChatToolDefinition, LlmToolCall } from '../types/domain';
 
 const DEFAULT_BASE_URL = process.env.LLM_BASE_URL || 'https://api.openai.com/v1';
 const DEFAULT_MODEL = process.env.LLM_MODEL || 'gpt-4o-mini';
@@ -22,11 +23,7 @@ export type AgentMessage =
   | { role: 'assistant'; content?: string; tool_calls?: ToolCall[] }
   | { role: 'tool'; tool_call_id: string; content: string };
 
-export type ToolCall = {
-  id: string;
-  type: 'function';
-  function: { name: string; arguments: string };
-};
+export type ToolCall = LlmToolCall;
 
 export type AgentLoopResponse =
   | { type: 'text'; content: string }
@@ -38,7 +35,7 @@ export type AgentLoopResponse =
  */
 export async function runAgentLoop(
   messages: AgentMessage[],
-  tools: readonly any[]
+  tools: readonly ChatToolDefinition[]
 ): Promise<AgentLoopResponse> {
   const apiKey = getLlmApiKey();
   if (!apiKey) throw new Error('Missing LLM API key. Set OPENAI_API_KEY or LLM_API_KEY.');
@@ -78,7 +75,7 @@ export async function runAgentLoop(
  */
 export async function runAgentLoopStream(
   messages: AgentMessage[],
-  tools: readonly any[],
+  tools: readonly ChatToolDefinition[],
   onChunk: (chunk: string) => void
 ): Promise<AgentLoopResponse> {
   const apiKey = getLlmApiKey();
@@ -171,7 +168,7 @@ export async function listAvailableModels(): Promise<string[]> {
   });
 
   const ids: string[] = Array.isArray(res?.data?.data)
-    ? res.data.data.map((m: any) => m?.id).filter((id: unknown) => typeof id === 'string')
+    ? res.data.data.map((model: unknown) => getStringProperty(model, 'id')).filter((id: unknown): id is string => typeof id === 'string')
     : [];
 
   const chatLike = ids.filter((id) => /(^gpt-|^o\d|chatgpt)/i.test(id));
@@ -275,7 +272,13 @@ async function runChatCompletionStream(
   return fullText.trim();
 }
 
-function safeJsonParse(text: string): any {
+function getStringProperty(value: unknown, key: string): string | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const record = value as Record<string, unknown>;
+  return typeof record[key] === 'string' ? record[key] : undefined;
+}
+
+function safeJsonParse(text: string): unknown {
   try {
     return JSON.parse(text);
   } catch {
