@@ -1,18 +1,19 @@
 import { getFinancials } from '../services/apiClient';
 import { prettyCurrency, prettyNumber } from '../utils/formatter';
-import { getLatestPrev, parseNumberLike, getField, extractQuarterLabel, calendarQuarterLabel } from '../utils/data';
+import { asRecord, getCompanyName, getLatestPrev, parseNumberLike, getField, extractQuarterLabel, calendarQuarterLabel } from '../utils/data';
 import chalk from 'chalk';
 import Table from 'cli-table3';
 import boxen from 'boxen';
+import type { CompareOptions, FinancialStatement } from '../types/domain';
 
-function netMargin(latest: any) {
+function netMargin(latest: FinancialStatement | null) {
   const rev = parseNumberLike(getField(latest, ['revenue', 'total_revenue', 'revenues', 'revenue_usd', 'totalRevenue'])) ?? null;
   const ni = parseNumberLike(getField(latest, ['net_income', 'netIncome', 'net_earnings', 'netEarnings', 'net_income_usd'])) ?? null;
   if (rev === null || ni === null) return null;
   return (Number(ni) / Number(rev)) * 100;
 }
 
-export async function run(tickers: string[], options: { period?: string; align?: string } = { period: 'quarter' }) {
+export async function run(tickers: string[], options: CompareOptions = { period: 'quarter' }) {
   if (!Array.isArray(tickers) || tickers.length < 2) {
     console.log('Please provide two or more tickers to compare, e.g. `flux compare AAPL MSFT NVDA`.');
     return;
@@ -24,17 +25,18 @@ export async function run(tickers: string[], options: { period?: string; align?:
   // Map to objects with computed metrics
   const rows = datas.map((d, idx) => {
     const t = (tickers[idx] || '').toUpperCase();
-    const name = d.company_name || d.name || t;
+    const name = getCompanyName(d, t);
     // determine period entries based on requested period type
     const quarters = getLatestPrev(d).quarters || [];
     const periodType = (options.period || 'quarter').toLowerCase();
     let label = '';
-    let chosenEntry: any = null;
+    let chosenEntry: FinancialStatement | null = null;
     if (periodType === 'annual') {
       // choose an annual-like entry (period === 'year' or fiscal_year with no quarter)
       for (const q of quarters) {
-        const p = (q.period || '').toString().toLowerCase();
-        if (p.includes('year') || (q.fiscal_year && !q.quarter)) {
+        const record = asRecord(q);
+        const p = String(record?.period || '').toLowerCase();
+        if (p.includes('year') || (record?.fiscal_year && !record.quarter)) {
           chosenEntry = q; break;
         }
       }
@@ -51,7 +53,7 @@ export async function run(tickers: string[], options: { period?: string; align?:
   if ((options.period || 'quarter').toLowerCase() === 'quarter') {
     const useCalendar = (options.align || 'fiscal').toLowerCase() === 'calendar';
     // collect label sets per ticker (calendar or fiscal)
-    const labelSets = datas.map(d => (getLatestPrev(d).quarters || []).map((q: any) => useCalendar ? calendarQuarterLabel(q) : extractQuarterLabel(q)));
+    const labelSets = datas.map(d => (getLatestPrev(d).quarters || []).map((q) => useCalendar ? calendarQuarterLabel(q) : extractQuarterLabel(q)));
     const common = labelSets.reduce((acc: string[] | null, set) => {
       if (acc === null) return [...set];
       return acc.filter(x => set.includes(x));
@@ -61,7 +63,7 @@ export async function run(tickers: string[], options: { period?: string; align?:
       // re-map rows to use the entry with targetLabel when available
       rows.forEach((r, i) => {
         const quarters = getLatestPrev(datas[i]).quarters || [];
-        const found = quarters.find((q: any) => (useCalendar ? calendarQuarterLabel(q) : extractQuarterLabel(q)) === targetLabel);
+        const found = quarters.find((q) => (useCalendar ? calendarQuarterLabel(q) : extractQuarterLabel(q)) === targetLabel);
         if (found) {
           r.label = targetLabel;
           r.rev = parseNumberLike(getField(found, ['revenue', 'total_revenue', 'revenues', 'revenue_usd', 'totalRevenue'])) ?? null;
@@ -79,7 +81,7 @@ export async function run(tickers: string[], options: { period?: string; align?:
 
   // Build table
   const head = [chalk.green('Metric'), ...rows.map(r => chalk.green(r.ticker)), chalk.green('Top')];
-  const table = new Table({ head, colWidths: [18, ...rows.map(() => 16), 14] as any });
+  const table = new Table({ head, colWidths: [18, ...rows.map(() => 16), 14] });
 
   // Revenue row
   const revValues = rows.map(r => r.rev);

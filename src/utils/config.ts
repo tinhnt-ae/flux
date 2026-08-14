@@ -2,22 +2,32 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import legacyStore from '../config/store';
+import type { FluxConfig } from '../config/store';
 
-type FinConfig = {
-  apiKey?: string;
-  llmModel?: string;
-  searxngUrl?: string;
-};
+type FinConfig = FluxConfig;
 
 const CONFIG_DIR = path.join(os.homedir(), '.fincli');
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
+
+function readStringField(input: unknown, key: keyof FinConfig): string | undefined {
+  if (!input || typeof input !== 'object') return undefined;
+  const value = (input as Record<string, unknown>)[key];
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+export function normalizeConfig(input: unknown): FinConfig {
+  return {
+    apiKey: readStringField(input, 'apiKey'),
+    llmModel: readStringField(input, 'llmModel'),
+    searxngUrl: readStringField(input, 'searxngUrl')
+  };
+}
 
 function safeReadConfig(): FinConfig {
   try {
     if (!fs.existsSync(CONFIG_PATH)) return {};
     const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
-    const parsed = JSON.parse(raw) as FinConfig;
-    return parsed && typeof parsed === 'object' ? parsed : {};
+    return normalizeConfig(JSON.parse(raw));
   } catch {
     return {};
   }
@@ -64,8 +74,7 @@ export function getConfigPath(): string {
 
 export function getStoredLlmModel(): string | undefined {
   const cfg = safeReadConfig();
-  if (cfg.llmModel && typeof cfg.llmModel === 'string') return cfg.llmModel;
-  return undefined;
+  return cfg.llmModel;
 }
 
 export function setLlmModel(model: string): void {

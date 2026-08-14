@@ -1,44 +1,33 @@
 import axios from 'axios';
 import { getApiKey } from '../utils/config';
 import { findQuarterArray } from '../utils/data';
+import { missingApiKeyError, toFactStreamError } from '../utils/errors';
+import type { TickerDataset, TickerDatasetMap } from '../types/domain';
 
 const BASE = 'https://api.factstream.io/v1';
+const FINANCIALS_TIMEOUT_MS = 15000;
 
-export type TickerDataset = {
-  latest: any | null;
-  previous: any | null;
-};
-
-export async function getAllFinancialStatements(ticker: string): Promise<any> {
+export async function getAllFinancialStatements(ticker: string): Promise<unknown> {
   const apiKey = getApiKey();
   if (!apiKey) {
-    const err: any = new Error('NO_API_KEY');
-    err.code = 'NO_API_KEY';
-    throw err;
+    throw missingApiKeyError();
   }
 
   try {
-    const res = await axios.get(`${BASE}/financials/${encodeURIComponent(ticker)}`, {
+    const res = await axios.get<unknown>(`${BASE}/financials/${encodeURIComponent(ticker)}`, {
       headers: {
         'X-API-Key': apiKey,
         'Content-Type': 'application/json'
       },
-      timeout: 15000
+      timeout: FINANCIALS_TIMEOUT_MS
     });
     return res.data;
-  } catch (e: any) {
-    if (e.response) {
-      const err: any = new Error(`FactStream request failed (${e.response.status})`);
-      err.code = 'API_ERROR';
-      err.status = e.response.status;
-      err.details = e.response.data;
-      throw err;
-    }
-    throw new Error('Unable to reach FactStream API');
+  } catch (error: unknown) {
+    throw toFactStreamError(error);
   }
 }
 
-export async function buildMinimalDataset(tickers: string[]): Promise<Record<string, TickerDataset>> {
+export async function buildMinimalDataset(tickers: string[]): Promise<TickerDatasetMap> {
   const entries = await Promise.all(
     tickers.map(async (ticker) => {
       const data = await getAllFinancialStatements(ticker);
